@@ -21,25 +21,27 @@ public protocol HttpResponseBodyWriter {
 }
 
 public enum HttpResponseBody {
-
+    
     case json(Any)
     case html(String)
     case htmlBody(String)
     case text(String)
     case data(Data)
     case custom(Any, (Any) throws -> String)
-
+    case js(String)
+    case css(String)
+    
     func content() -> (Int, ((HttpResponseBodyWriter) throws -> Void)?) {
         do {
             switch self {
             case .json(let object):
-              guard JSONSerialization.isValidJSONObject(object) else {
-                throw SerializationError.invalidObject
-              }
-              let data = try JSONSerialization.data(withJSONObject: object)
-              return (data.count, {
-                try $0.write(data)
-              })
+                guard JSONSerialization.isValidJSONObject(object) else {
+                    throw SerializationError.invalidObject
+                }
+                let data = try JSONSerialization.data(withJSONObject: object)
+                return (data.count, {
+                    try $0.write(data)
+                })
             case .text(let body):
                 let data = [UInt8](body.utf8)
                 return (data.count, {
@@ -66,6 +68,16 @@ public enum HttpResponseBody {
                 return (data.count, {
                     try $0.write(data)
                 })
+            case .js(let body):
+                let data = [UInt8](body.utf8)
+                return (data.count, {
+                    try $0.write(data)
+                })
+            case .css(let body):
+                let data = [UInt8](body.utf8)
+                return (data.count, {
+                    try $0.write(data)
+                })
             }
         } catch {
             let data = [UInt8]("Serialisation error: \(error)".utf8)
@@ -78,7 +90,7 @@ public enum HttpResponseBody {
 
 // swiftlint:disable cyclomatic_complexity
 public enum HttpResponse {
-
+    
     case switchProtocols([String: String], (Socket) -> Void)
     case ok(HttpResponseBody), created, accepted
     case movedPermanently(String)
@@ -86,7 +98,7 @@ public enum HttpResponse {
     case badRequest(HttpResponseBody?), unauthorized, forbidden, notFound
     case internalServerError
     case raw(Int, String, [String:String]?, ((HttpResponseBodyWriter) throws -> Void)? )
-
+    
     public var statusCode: Int {
         switch self {
         case .switchProtocols         : return 101
@@ -103,7 +115,7 @@ public enum HttpResponse {
         case .raw(let code, _, _, _)  : return code
         }
     }
-
+    
     public var reasonPhrase: String {
         switch self {
         case .switchProtocols          : return "Switching Protocols"
@@ -120,7 +132,7 @@ public enum HttpResponse {
         case .raw(_, let phrase, _, _) : return phrase
         }
     }
-
+    
     public func headers() -> [String: String] {
         var headers = ["Server": "Swifter \(HttpServer.VERSION)"]
         switch self {
@@ -132,6 +144,9 @@ public enum HttpResponse {
             switch body {
             case .json: headers["Content-Type"] = "application/json"
             case .html: headers["Content-Type"] = "text/html"
+            case .js: headers["Content-Type"] = "application/javascript"
+            case .css: headers["Content-Type"] = "text/css"
+                
             default:break
             }
         case .movedPermanently(let location):
@@ -148,7 +163,7 @@ public enum HttpResponse {
         }
         return headers
     }
-
+    
     func content() -> (length: Int, write: ((HttpResponseBodyWriter) throws -> Void)?) {
         switch self {
         case .ok(let body)             : return body.content()
@@ -157,7 +172,7 @@ public enum HttpResponse {
         default                        : return (-1, nil)
         }
     }
-
+    
     func socketSession() -> ((Socket) -> Void)? {
         switch self {
         case .switchProtocols(_, let handler) : return handler
@@ -167,15 +182,15 @@ public enum HttpResponse {
 }
 
 /**
-    Makes it possible to compare handler responses with '==', but
-	ignores any associated values. This should generally be what
-	you want. E.g.:
-
-    let resp = handler(updatedRequest)
-        if resp == .NotFound {
-        print("Client requested not found: \(request.url)")
-    }
-*/
+ Makes it possible to compare handler responses with '==', but
+ ignores any associated values. This should generally be what
+ you want. E.g.:
+ 
+ let resp = handler(updatedRequest)
+ if resp == .NotFound {
+ print("Client requested not found: \(request.url)")
+ }
+ */
 
 func == (inLeft: HttpResponse, inRight: HttpResponse) -> Bool {
     return inLeft.statusCode == inRight.statusCode
